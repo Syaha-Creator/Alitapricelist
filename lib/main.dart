@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:alita_pricelist/core/config/app_config.dart';
 import 'package:alita_pricelist/core/logging/app_logger.dart';
 import 'package:alita_pricelist/core/router/app_router.dart';
+import 'package:alita_pricelist/core/widgets/bootstrap_error_page.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:flutter/foundation.dart';
@@ -13,51 +14,85 @@ Future<void> main() async {
   // Everything below is wrapped in runZonedGuarded so that truly uncaught
   // errors (not just Flutter framework errors) are still reported instead
   // of silently crashing. This is the mandatory guardrail from SPEC.md §6.
-  runZonedGuarded(
-    () async {
-      WidgetsFlutterBinding.ensureInitialized();
+  runZonedGuarded(bootstrap, (error, stackTrace) {
+    // Last-resort handler for anything thrown outside the Flutter zone
+    // (e.g. during the async gap before runApp, if something below still
+    // manages to escape every other guard). This only logs — it does NOT
+    // call runApp() — so `bootstrap` itself must never let an exception
+    // reach here without having already called runApp() with an error UI.
+    AppLogger.recordError(
+      error,
+      stackTrace,
+      reason: 'runZonedGuarded root handler',
+      fatal: true,
+    );
+  });
+}
 
-      await AppConfig.load();
+/// The actual boot sequence, extracted out of `main()` so it can be exercised
+/// directly in tests (see `test/bootstrap_test.dart`).
+///
+/// [loadConfig] is injectable so tests can simulate `AppConfig.load()`
+/// failing without needing a real `.env` file.
+///
+/// Guardrail: every failure in here MUST still result in `runApp()` being
+/// called with *some* UI (an error screen, at minimum) — never leave the
+/// zone's error handler as the only thing that ran, because that produces a
+/// silent blank screen with no on-screen trace and, worse, no Crashlytics
+/// trace either (Crashlytics may not even be initialized yet at this point).
+@visibleForTesting
+Future<void> bootstrap({Future<void> Function() loadConfig = AppConfig.load}) async {
+  WidgetsFlutterBinding.ensureInitialized();
 
-      await _initFirebase();
+  try {
+    await loadConfig();
+  } catch (error, stackTrace) {
+    AppLogger.recordError(
+      error,
+      stackTrace,
+      reason: 'AppConfig.load failed',
+      fatal: true,
+    );
+    runApp(
+      MaterialApp(
+        debugShowCheckedModeBanner: false,
+        home: BootstrapErrorPage(
+          message:
+              'Konfigurasi aplikasi (.env) tidak ditemukan atau tidak valid. '
+              'Salin .env.example menjadi .env lalu jalankan ulang.',
+        ),
+      ),
+    );
+    return;
+  }
 
-      // Catches errors thrown during the Flutter framework's build/layout/
-      // paint pipeline (e.g. a bad widget build).
-      FlutterError.onError = (FlutterErrorDetails details) {
-        FlutterError.presentError(details);
-        AppLogger.recordError(
-          details.exception,
-          details.stack ?? StackTrace.current,
-          reason: 'FlutterError.onError',
-          fatal: true,
-        );
-      };
+  await _initFirebase();
 
-      // Catches errors that escape the Flutter framework entirely (e.g. in
-      // a Future that nothing awaited/caught).
-      PlatformDispatcher.instance.onError = (error, stackTrace) {
-        AppLogger.recordError(
-          error,
-          stackTrace,
-          reason: 'PlatformDispatcher.onError',
-          fatal: true,
-        );
-        return true;
-      };
+  // Catches errors thrown during the Flutter framework's build/layout/
+  // paint pipeline (e.g. a bad widget build).
+  FlutterError.onError = (FlutterErrorDetails details) {
+    FlutterError.presentError(details);
+    AppLogger.recordError(
+      details.exception,
+      details.stack ?? StackTrace.current,
+      reason: 'FlutterError.onError',
+      fatal: true,
+    );
+  };
 
-      runApp(const ProviderScope(child: AlitaApp()));
-    },
-    (error, stackTrace) {
-      // Last-resort handler for anything thrown outside the Flutter zone
-      // (e.g. during the async gap before runApp).
-      AppLogger.recordError(
-        error,
-        stackTrace,
-        reason: 'runZonedGuarded root handler',
-        fatal: true,
-      );
-    },
-  );
+  // Catches errors that escape the Flutter framework entirely (e.g. in
+  // a Future that nothing awaited/caught).
+  PlatformDispatcher.instance.onError = (error, stackTrace) {
+    AppLogger.recordError(
+      error,
+      stackTrace,
+      reason: 'PlatformDispatcher.onError',
+      fatal: true,
+    );
+    return true;
+  };
+
+  runApp(const ProviderScope(child: AlitaApp()));
 }
 
 Future<void> _initFirebase() async {
