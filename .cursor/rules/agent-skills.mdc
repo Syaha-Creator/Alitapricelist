@@ -1,0 +1,18 @@
+---
+description: Use agent-skills workflows from .cursor/skills
+alwaysApply: true
+---
+
+Before non-trivial technical work on this project:
+
+1. Read the matching skill under `.cursor/skills/<name>/SKILL.md` before starting:
+   - Planning a new module/feature or an architectural decision → `spec-driven-development`
+   - Writing or changing any logic (especially pricing calculation, auth, error mapping) →
+     `test-driven-development`
+   - Before considering a module/PR done → `code-review-and-quality`
+   - Investigating a bug, crash, or unexpected behavior → `debugging-and-error-recovery`
+2. Follow the skill's process rather than guessing at conventions.
+3. This project follows `SPEC.md` at the repo root — treat it as the source of truth for scope,
+   tech stack, and the mandatory crash-prevention guardrails (§6). Any new skill-driven spec
+   (e.g. `spec.md` produced by `spec-driven-development`) must stay consistent with it, not
+   replace it, unless the user explicitly asks to supersede it.
