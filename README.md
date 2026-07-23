@@ -65,22 +65,22 @@ features/
 
 ## Agent skills (Cursor)
 
-Project ini memakai 4 skill inti dari
+Project ini memakai seluruh 24 skill dari
 [addyosmani/agent-skills](https://github.com/addyosmani/agent-skills), disinkronkan ke
-`.cursor/skills/` (lokasi yang dibaca Cursor) dengan routing rule tipis di
-`.cursor/rules/agent-skills.mdc`:
+`.cursor/skills/` (lokasi yang dibaca Cursor — bukan `.agents/skills/`, yang hanya lokasi
+copy generik dari CLI-nya) dengan routing rule tipis di `.cursor/rules/agent-skills.mdc` yang
+menunjuk ke meta-skill `using-agent-skills` (skill ini yang memilihkan skill lain sesuai fase
+kerja — lihat tabel routing di `.cursor/skills/using-agent-skills/SKILL.md`).
 
-- `spec-driven-development` — untuk modul/fitur baru & keputusan arsitektur
-- `test-driven-development` — untuk setiap logic yang ditulis (terutama kalkulasi harga, auth, error mapping)
-- `code-review-and-quality` — sebelum modul dianggap selesai
-- `debugging-and-error-recovery` — saat investigasi bug/crash
+Skill yang paling relevan untuk rewrite ini: `spec-driven-development`,
+`planning-and-task-breakdown`, `incremental-implementation`, `test-driven-development`,
+`debugging-and-error-recovery`, `code-review-and-quality`, `security-and-hardening`,
+`git-workflow-and-versioning`.
 
-Update ke versi terbaru skill:
+Update ke versi terbaru semua skill:
 
 ```bash
-npx skills add addyosmani/agent-skills --skill spec-driven-development \
-  --skill test-driven-development --skill code-review-and-quality \
-  --skill debugging-and-error-recovery
+npx skills add addyosmani/agent-skills
 # lalu sinkronkan ke lokasi yang dibaca Cursor:
 rsync -a .agents/skills/ .cursor/skills/ && rm -rf .agents
 ```
