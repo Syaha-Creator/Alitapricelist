@@ -41,7 +41,7 @@ class ApiClient {
              ),
            ) {
     _dio.interceptors.addAll([
-      _AuthHeaderInterceptor(getToken: _accessTokenProvider),
+      _AccessTokenQueryInterceptor(getToken: _accessTokenProvider),
       RetryInterceptor(dio: _dio),
       LoggingInterceptor(),
     ]);
@@ -190,8 +190,15 @@ class ApiClient {
   }
 }
 
-class _AuthHeaderInterceptor extends Interceptor {
-  _AuthHeaderInterceptor({required AccessTokenProvider? getToken}) : _getToken = getToken;
+/// The Alita REST API does not use `Authorization: Bearer` — every
+/// authenticated call sends the token as an `access_token` query
+/// parameter instead (verified against the legacy app; see
+/// `tasks/plan.md`). `client_id`/`client_secret` are deliberately *not*
+/// added here: they're only required by a handful of endpoints (e.g.
+/// `/sign_in`) and are passed explicitly by the caller via
+/// `queryParameters`, so this interceptor doesn't need to know about them.
+class _AccessTokenQueryInterceptor extends Interceptor {
+  _AccessTokenQueryInterceptor({required AccessTokenProvider? getToken}) : _getToken = getToken;
 
   final AccessTokenProvider? _getToken;
 
@@ -202,7 +209,7 @@ class _AuthHeaderInterceptor extends Interceptor {
   ) async {
     final token = await _getToken?.call();
     if (token != null && token.isNotEmpty) {
-      options.headers['Authorization'] = 'Bearer $token';
+      options.queryParameters = {...options.queryParameters, 'access_token': token};
     }
     handler.next(options);
   }
