@@ -25,31 +25,46 @@ typedef UnauthorizedCallback = void Function();
 /// raw exception" guardrail structurally true rather than a convention that
 /// can be forgotten.
 class ApiClient {
-  ApiClient({
-    Dio? dio,
-    AccessTokenProvider? accessTokenProvider,
-    UnauthorizedCallback? onUnauthorized,
-  }) : _accessTokenProvider = accessTokenProvider,
-       _onUnauthorized = onUnauthorized,
-       _dio =
-           dio ??
-           Dio(
-             BaseOptions(
-               baseUrl: AppConfig.apiBaseUrl,
-               connectTimeout: AppConfig.apiTimeout,
-               receiveTimeout: AppConfig.apiTimeout,
-             ),
-           ) {
+  ApiClient({Dio? dio, AccessTokenProvider? accessTokenProvider, UnauthorizedCallback? onUnauthorized})
+    : _accessTokenProvider = accessTokenProvider,
+      _onUnauthorized = onUnauthorized,
+      _dio =
+          dio ??
+          Dio(
+            BaseOptions(
+              baseUrl: AppConfig.apiBaseUrl,
+              connectTimeout: AppConfig.apiTimeout,
+              receiveTimeout: AppConfig.apiTimeout,
+            ),
+          ) {
+    // Reads `_accessTokenProvider`/`_onUnauthorized` through instance
+    // methods (not captured values) so [attachAuth] can wire the auth
+    // module in *after* construction without recreating the interceptor —
+    // callers that only build ApiClient (e.g. in tests) never need to know
+    // about auth at all.
     _dio.interceptors.addAll([
-      _AccessTokenQueryInterceptor(getToken: _accessTokenProvider),
+      _AccessTokenQueryInterceptor(getToken: _getAccessToken),
       RetryInterceptor(dio: _dio),
       LoggingInterceptor(),
     ]);
   }
 
   final Dio _dio;
-  final AccessTokenProvider? _accessTokenProvider;
-  final UnauthorizedCallback? _onUnauthorized;
+  AccessTokenProvider? _accessTokenProvider;
+  UnauthorizedCallback? _onUnauthorized;
+
+  Future<String?> _getAccessToken() => _accessTokenProvider?.call() ?? Future<String?>.value();
+
+  /// Wires the auth module into an already-constructed [ApiClient].
+  ///
+  /// This exists so [ApiClient] can be built with no knowledge of auth
+  /// (avoiding a core -> feature dependency), while the auth module still
+  /// only has to call one method instead of the network layer being
+  /// rebuilt around it.
+  void attachAuth({AccessTokenProvider? accessTokenProvider, UnauthorizedCallback? onUnauthorized}) {
+    _accessTokenProvider = accessTokenProvider;
+    _onUnauthorized = onUnauthorized;
+  }
 
   Future<Result<T>> get<T>(
     String path, {
@@ -154,6 +169,13 @@ class ApiClient {
         if (error.error is SocketException) {
           return NetworkException(cause: error, stackTrace: stackTrace);
         }
+        // A syntactically-broken body (e.g. non-JSON) fails inside Dio's
+        // own response transformer, before our `parser` callback ever
+        // runs — that still has to surface as ParsingException, not an
+        // opaque "unknown" error.
+        if (error.error is FormatException) {
+          return ParsingException(cause: error, stackTrace: stackTrace);
+        }
         return UnknownAppException(cause: error, stackTrace: stackTrace);
       // Explicit default instead of an exhaustive switch: newer Dio
       // releases occasionally add DioExceptionType values (e.g.
@@ -198,16 +220,16 @@ class ApiClient {
 /// `/sign_in`) and are passed explicitly by the caller via
 /// `queryParameters`, so this interceptor doesn't need to know about them.
 class _AccessTokenQueryInterceptor extends Interceptor {
-  _AccessTokenQueryInterceptor({required AccessTokenProvider? getToken}) : _getToken = getToken;
+  _AccessTokenQueryInterceptor({required AccessTokenProvider getToken}) : _getToken = getToken;
 
-  final AccessTokenProvider? _getToken;
+  final AccessTokenProvider _getToken;
 
   @override
   Future<void> onRequest(
     RequestOptions options,
     RequestInterceptorHandler handler,
   ) async {
-    final token = await _getToken?.call();
+    final token = await _getToken();
     if (token != null && token.isNotEmpty) {
       options.queryParameters = {...options.queryParameters, 'access_token': token};
     }
