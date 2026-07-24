@@ -4,11 +4,13 @@ import 'package:alita_pricelist/core/config/app_config.dart';
 import 'package:alita_pricelist/core/logging/app_logger.dart';
 import 'package:alita_pricelist/core/router/app_router.dart';
 import 'package:alita_pricelist/core/widgets/bootstrap_error_page.dart';
+import 'package:alita_pricelist/features/pricelist/logic/pricelist_cache_directory_provider.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path_provider/path_provider.dart';
 
 Future<void> main() async {
   // Everything below is wrapped in runZonedGuarded so that truly uncaught
@@ -92,7 +94,18 @@ Future<void> bootstrap({Future<void> Function() loadConfig = AppConfig.load}) as
     return true;
   };
 
-  runApp(const ProviderScope(child: AlitaApp()));
+  // Resolved once, here, before `runApp` — same reasoning as `AppConfig.load()`
+  // above: this is the one `path_provider` platform-channel call the whole
+  // app needs, and doing it eagerly keeps every pricelist provider that
+  // depends on it synchronous (see `pricelistCacheDirectoryProvider`).
+  final cacheDirectory = await getApplicationSupportDirectory();
+
+  runApp(
+    ProviderScope(
+      overrides: [pricelistCacheDirectoryProvider.overrideWithValue(cacheDirectory)],
+      child: const AlitaApp(),
+    ),
+  );
 }
 
 Future<void> _initFirebase() async {

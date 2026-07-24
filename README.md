@@ -58,9 +58,10 @@ lib/
     ├── logging/                # AppLogger (satu-satunya jalur ke Crashlytics)
     ├── network/                # ApiClient (Dio) + interceptors (retry, logging)
     ├── router/                 # GoRouter + redirect guard eksplisit
-    └── widgets/                # SplashPage, BootstrapErrorPage, PlaceholderHomePage
+    └── widgets/                # SplashPage, BootstrapErrorPage
 features/
-└── auth/                       # skeleton folder, diisi di step 2
+├── auth/                       # Step 2 — login, session, redirect guard
+└── pricelist/                  # Step 3 — browsing home page (models/repo/cache/UI)
 ```
 
 ## Agent skills (Cursor)

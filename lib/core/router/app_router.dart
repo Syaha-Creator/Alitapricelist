@@ -1,11 +1,11 @@
 import 'package:alita_pricelist/core/bootstrap/bootstrap_provider.dart';
 import 'package:alita_pricelist/core/bootstrap/bootstrap_state.dart';
 import 'package:alita_pricelist/core/widgets/bootstrap_error_page.dart';
-import 'package:alita_pricelist/core/widgets/placeholder_home_page.dart';
 import 'package:alita_pricelist/core/widgets/splash_page.dart';
 import 'package:alita_pricelist/features/auth/logic/auth_status.dart';
 import 'package:alita_pricelist/features/auth/logic/auth_status_provider.dart';
 import 'package:alita_pricelist/features/auth/presentation/login_page.dart';
+import 'package:alita_pricelist/features/pricelist/presentation/pricelist_home_page.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -31,7 +31,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(
         path: AppRoutes.home,
-        builder: (context, state) => const PlaceholderHomePage(),
+        builder: (context, state) => const PricelistHomePage(),
       ),
       GoRoute(
         path: AppRoutes.login,
