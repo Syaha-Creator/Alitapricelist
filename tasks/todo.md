@@ -1,32 +1,37 @@
-# Todo: Auth Module (SPEC.md §8 Step 2)
+# Todo: Pricelist Browsing (SPEC.md §8 Step 3)
 
-See `tasks/plan.md` for full context and API contract.
+See `tasks/plan.md` for full context, API contract, and confirmed design decisions.
 
-## Phase 1: Foundation
-- [x] Task 1: `AuthSession` model + `SecureSessionStorage` (save/load/clear) + tests
-- [x] Task 2: `LoginResponse`/`AuthUser` Freezed models (json_serializable) + parsing tests
+## Phase 1: Models
+- [ ] Task 1: `Area`/`Channel`/`Brand` models + `parseMasterDataEnvelope` + tests
+- [ ] Task 2: `PricelistItem` model (full filtered_pl contract) + tests
+- [ ] Task 3: `ItemLookupEntry`/`Accessory` models + tests
 
 ## Checkpoint 1
-- [x] All Phase 1 tests green, `flutter analyze` clean
+- [ ] All Phase 1 tests green, `flutter analyze` clean, commit
 
-## Phase 2: Network + repository
-- [x] Task 3: Replace `_AuthHeaderInterceptor` with query-param (`access_token`) injector + test
-- [x] Task 4: `AuthRepository.login()` (Result<AuthSession>) + `onUnauthorized` wiring + tests
-      (success, 401, network error, parsing error)
+## Phase 2: Repository + cache
+- [ ] Task 4: `PricelistRepository.getAreas/getChannels/getBrands` + tests
+- [ ] Task 5: `PricelistCacheStore` (file JSON) + tests
+- [ ] Task 6: `PricelistRepository.getFilteredPricelist` (network + cache fallback) + tests
+- [ ] Task 7: `PricelistRepository.getItemLookups/getAccessories` + tests
 
 ## Checkpoint 2
-- [x] Repository + interceptor tests green, `flutter analyze` clean
+- [ ] Repository + cache tests green (all fallback cases), `flutter analyze` clean, commit
 
-## Phase 3: State, router guard, UI
-- [x] Task 5: `authStatusProvider` (AsyncNotifierProvider, restores session on build)
-- [x] Task 6: Firebase Auth anonymous init, fire-and-forget, non-fatal logging on error
-- [x] Task 7: Router: `/login` route + redirect guard using `authStatusProvider`
-- [x] Task 8: `LoginPage` UI + widget test
+## Phase 3: Filter/grouping/search/sort logic
+- [ ] Task 8: `PricelistFilterNotifier` (cascading reset) + tests
+- [ ] Task 9: `brandsForSelectedChannelProvider` + `groupedPricelistProvider` + tests
+- [ ] Task 10: `searchQueryProvider`/`sortOptionProvider`/`filteredSortedPricelistProvider` + tests
 
-## Checkpoint 3 (final)
-- [x] Full test suite green (49 tests), `flutter analyze` 0 issues
-- [x] code-review-and-quality pass — found and fixed a security gap:
-      `LoggingInterceptor`'s debug-only URI logging leaked `access_token`/
-      `client_secret`/`client_id` once those moved from header to query
-      param (Task 3); now redacted via `redactSensitiveQueryParams`.
-- [x] Summary shown to user before Step 3
+## Checkpoint 3
+- [ ] All logic tests green, `flutter analyze` clean, commit
+
+## Phase 4: UI
+- [ ] Task 11: `PricelistHomePage` (search, sort, cascading filter pills, masonry grid, stale-cache
+      indicator) wired into `app_router.dart` replacing `PlaceholderHomePage` + widget tests
+
+## Checkpoint 4 (final)
+- [ ] Full test suite green, `flutter analyze` 0 issues
+- [ ] `code-review-and-quality` pass
+- [ ] Summary shown to user before Step 4
