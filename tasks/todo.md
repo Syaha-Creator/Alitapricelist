@@ -3,21 +3,21 @@
 See `tasks/plan.md` for full context, API contract, and confirmed design decisions.
 
 ## Phase 1: Models
-- [ ] Task 1: `Area`/`Channel`/`Brand` models + `parseMasterDataEnvelope` + tests
-- [ ] Task 2: `PricelistItem` model (full filtered_pl contract) + tests
-- [ ] Task 3: `ItemLookupEntry`/`Accessory` models + tests
+- [x] Task 1: `Area`/`Channel`/`Brand` models + `parseMasterDataEnvelope` + tests
+- [x] Task 2: `PricelistItem` model (full filtered_pl contract) + tests
+- [x] Task 3: `ItemLookupEntry`/`Accessory` models + tests
 
 ## Checkpoint 1
-- [ ] All Phase 1 tests green, `flutter analyze` clean, commit
+- [x] All Phase 1 tests green (37 tests), `flutter analyze` clean, commit (`48d0075`)
 
 ## Phase 2: Repository + cache
-- [ ] Task 4: `PricelistRepository.getAreas/getChannels/getBrands` + tests
-- [ ] Task 5: `PricelistCacheStore` (file JSON) + tests
-- [ ] Task 6: `PricelistRepository.getFilteredPricelist` (network + cache fallback) + tests
-- [ ] Task 7: `PricelistRepository.getItemLookups/getAccessories` + tests
+- [x] Task 4: `PricelistRepository.getAreas/getChannels/getBrands` + tests
+- [x] Task 5: `PricelistCacheStore` (file JSON) + tests
+- [x] Task 6: `PricelistRepository.getFilteredPricelist` (network + cache fallback) + tests
+- [x] Task 7: `PricelistRepository.getItemLookups/getAccessories` + tests
 
 ## Checkpoint 2
-- [ ] Repository + cache tests green (all fallback cases), `flutter analyze` clean, commit
+- [x] Repository + cache tests green (all fallback cases, 111 total), `flutter analyze` clean, commit
 
 ## Phase 3: Filter/grouping/search/sort logic
 - [ ] Task 8: `PricelistFilterNotifier` (cascading reset) + tests
