@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 /// Central place to read build-time configuration from `.env`.
@@ -19,9 +21,16 @@ class AppConfig {
 
   static String get apiBaseUrl => _require('API_BASE_URL');
 
-  static String get apiClientId => _require('API_CLIENT_ID');
+  /// The Alita REST API registers a *different* client_id/client_secret per
+  /// platform (verified against the legacy app's `AppConfig` — not
+  /// guessed), so these must branch on platform rather than read a single
+  /// shared value: using the wrong pair makes `/sign_in` reject an
+  /// otherwise-correct login with 401.
+  static String get apiClientId =>
+      Platform.isAndroid ? _require('API_CLIENT_ID_ANDROID') : _require('API_CLIENT_ID_IOS');
 
-  static String get apiClientSecret => _require('API_CLIENT_SECRET');
+  static String get apiClientSecret =>
+      Platform.isAndroid ? _require('API_CLIENT_SECRET_ANDROID') : _require('API_CLIENT_SECRET_IOS');
 
   /// Timeout in milliseconds for network requests. Defaults to 15s.
   static Duration get apiTimeout => Duration(
