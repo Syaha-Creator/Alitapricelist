@@ -75,9 +75,9 @@ decisions.
       `PricelistRepository.getItemLookups()` + tests
 
 ## Phase 3: UI + wiring
-- [ ] Task `configurator-ui`: `ConfiguratorPage` (variant picker, kain/warna picker, price
+- [x] Task `configurator-ui`: `ConfiguratorPage` (variant picker, kain/warna picker, price
       breakdown, manual/target discount input, floor/markup indicators)
-- [ ] Task `wiring`: Wire tap on grid card (`PricelistHomePage`) → `ConfiguratorPage` via router
+- [x] Task `wiring`: Wire tap on grid card (`PricelistHomePage`) → `ConfiguratorPage` via router
 
 ## Checkpoint 2 (final)
 - [ ] Task `review`: `code-review-and-quality` pass + summary shown to user before Step 5

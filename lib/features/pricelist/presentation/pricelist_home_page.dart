@@ -1,4 +1,5 @@
 import 'package:alita_pricelist/core/error/app_exception.dart';
+import 'package:alita_pricelist/core/router/app_router.dart';
 import 'package:alita_pricelist/features/pricelist/data/models/pricelist_item.dart';
 import 'package:alita_pricelist/features/pricelist/logic/pricelist_browsing_provider.dart';
 import 'package:alita_pricelist/features/pricelist/logic/pricelist_filter_provider.dart';
@@ -7,6 +8,7 @@ import 'package:alita_pricelist/features/pricelist/logic/pricelist_search_sort.d
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
+import 'package:go_router/go_router.dart';
 
 /// Home page (SPEC.md §5 point 2 — there is no separate dashboard): search
 /// + sort + a cascading Area→Channel→Brand filter + a masonry product
@@ -289,38 +291,41 @@ class _PricelistCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Card(
       clipBehavior: Clip.antiAlias,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          AspectRatio(
-            aspectRatio: 1,
-            child: item.imageUrl.startsWith('http')
-                ? Image.network(
-                    item.imageUrl,
-                    fit: BoxFit.cover,
-                    errorBuilder: (context, error, stackTrace) => const _ImagePlaceholder(),
-                  )
-                : const _ImagePlaceholder(),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(8),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(item.name, maxLines: 2, overflow: TextOverflow.ellipsis),
-                const SizedBox(height: 4),
-                Text(
-                  formatRupiah(item.price),
-                  style: Theme.of(
-                    context,
-                  ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold),
-                ),
-              ],
+      child: InkWell(
+        onTap: () => context.push(AppRoutes.configurator, extra: item),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            AspectRatio(
+              aspectRatio: 1,
+              child: item.imageUrl.startsWith('http')
+                  ? Image.network(
+                      item.imageUrl,
+                      fit: BoxFit.cover,
+                      errorBuilder: (context, error, stackTrace) => const _ImagePlaceholder(),
+                    )
+                  : const _ImagePlaceholder(),
             ),
-          ),
-        ],
+            Padding(
+              padding: const EdgeInsets.all(8),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(item.name, maxLines: 2, overflow: TextOverflow.ellipsis),
+                  const SizedBox(height: 4),
+                  Text(
+                    formatRupiah(item.price),
+                    style: Theme.of(
+                      context,
+                    ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
