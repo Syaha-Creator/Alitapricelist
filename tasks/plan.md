@@ -120,6 +120,14 @@ sudah otomatis lewat `ApiClient` (`access_token`) untuk yang perlu ditambah manu
    grouping-jadi-satu-card-per-nama dilakukan di provider layer (`groupedPricelistProvider`, murni
    fungsi tanpa side effect), BUKAN di repository, supaya repository tetap merepresentasikan
    kontrak API asli 1:1 dan grouping bisa diuji terpisah dari network/cache.
+   **Koreksi ditemukan lewat TDD (Task 9)**: grouping key yang benar adalah `kasur` (dengan
+   fallback ke `divan`/`headboard`/`sorong`/`name` kalau `kasur` kosong/`"Tanpa Kasur"`) — BUKAN
+   `PricelistItem.name` (yang berisi `"<kasur> <ukuran>"`). Kalau grouping pakai `name`, tiap
+   ukuran akan tetap jadi card sendiri-sendiri karena `name` selalu unik per ukuran — itu
+   menggagalkan tujuan grouping. Ini sesuai persis `groupProductsByVariantModel` di app lama
+   (`product_provider.dart:534`), ditemukan test gagal duluan sebelum kode diperbaiki (RED→GREEN).
+   Card hasil grouping menampilkan `name` = nama model (misal `"Comforta Elite"`), bukan nama
+   varian ukuran.
 8. **Sort options**: "Nama (A-Z)" (default), "Harga: Rendah ke Tinggi", "Harga: Tinggi ke Rendah"
    — tidak menyalin opsi "Terbaru" app lama (itu sebenarnya no-op/placeholder karena tidak ada
    field timestamp asli untuk sorting kronologis di data ini).
