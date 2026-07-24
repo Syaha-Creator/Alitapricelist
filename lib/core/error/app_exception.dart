@@ -91,6 +91,17 @@ final class CacheException extends AppException {
   }) : super(message);
 }
 
+/// Required app configuration (env var) is missing or invalid — e.g.
+/// `API_CLIENT_ID_ANDROID` absent from `.env`. This is a setup/deployment
+/// problem, not something the user caused or can fix by retrying.
+final class ConfigException extends AppException {
+  const ConfigException({
+    String message = 'Konfigurasi aplikasi tidak lengkap. Hubungi admin.',
+    super.cause,
+    super.stackTrace,
+  }) : super(message);
+}
+
 /// Catch-all for anything that doesn't fit the categories above. Kept
 /// deliberately narrow in scope — new call sites should prefer adding a new
 /// concrete [AppException] subtype instead of reaching for this.

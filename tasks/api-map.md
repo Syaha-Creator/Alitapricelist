@@ -17,7 +17,7 @@ instead of the query string.
 | Request | Method | Path | Notes |
 |---|---|---|---|
 | Sign In | POST | `/api/sign_in?client_id&client_secret` | Body: `{email, password}`. Matches `AuthRepository.login()`. |
-| Sign Out | DELETE | `/api/sign_out` | Body (not query): `{client_id, client_secret, access_token}`. **Not yet implemented** — deferred per `tasks/plan.md` open question. |
+| Sign Out | DELETE | `/api/sign_out` | Body (not query): `{client_id, client_secret, access_token}`. Implemented in `AuthRepository.logout()` — best-effort (local session always clears even if this call fails). |
 
 ## 02. Attendance
 
@@ -182,7 +182,6 @@ needed until a step that surfaces brand spec sheets).
 
 ## Open items to resolve before the steps that need them
 
-- **Sign Out** (`DELETE /sign_out`) — contract known, not implemented in the auth module yet.
 - **Store Discounts** — collection shows no access_token/client_id on this one request; verify
   against the live server before relying on it (could be a stale/simplified example).
 - **Create Order Letter Payment** — collection has an empty `formdata` body; likely a file upload

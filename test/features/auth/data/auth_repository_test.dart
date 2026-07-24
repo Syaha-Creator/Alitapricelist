@@ -78,7 +78,10 @@ class _ConnectionErrorAdapter implements HttpClientAdapter {
 AuthRepository _buildRepository(HttpClientAdapter adapter, {SessionLocalStore? sessionStore}) {
   final dio = Dio(BaseOptions(baseUrl: 'https://example.test'))..httpClientAdapter = adapter;
   final apiClient = ApiClient(dio: dio);
-  return AuthRepository(apiClient: apiClient, sessionStore: sessionStore ?? SessionLocalStore(tokenStorage: FakeTokenStorage()));
+  return AuthRepository(
+    apiClient: apiClient,
+    sessionStore: sessionStore ?? SessionLocalStore(tokenStorage: FakeTokenStorage()),
+  );
 }
 
 void main() {
@@ -94,7 +97,8 @@ void main() {
     test('a successful sign_in maps to an AuthSession and persists it', () async {
       final adapter = _StubAdapter(
         statusCode: 200,
-        body: '{"token":"tok-abc","user":{"id":7,"email":"budi@massindo.com","name":"Budi","area_id":3}}',
+        body:
+            '{"token":"tok-abc","user":{"id":7,"email":"budi@massindo.com","name":"Budi","area_id":3}}',
       );
       final sessionStore = SessionLocalStore(tokenStorage: FakeTokenStorage());
       final repository = _buildRepository(adapter, sessionStore: sessionStore);
@@ -151,17 +155,20 @@ void main() {
       );
     });
 
-    test('a response body that fails to parse maps to ParsingException, not a raw exception', () async {
-      final adapter = _StubAdapter(statusCode: 200, body: 'not valid json at all {{{');
-      final repository = _buildRepository(adapter);
+    test(
+      'a response body that fails to parse maps to ParsingException, not a raw exception',
+      () async {
+        final adapter = _StubAdapter(statusCode: 200, body: 'not valid json at all {{{');
+        final repository = _buildRepository(adapter);
 
-      final result = await repository.login(email: 'a@b.com', password: 'pw');
+        final result = await repository.login(email: 'a@b.com', password: 'pw');
 
-      result.fold(
-        onSuccess: (_) => fail('expected failure'),
-        onFailure: (error) => expect(error, isA<ParsingException>()),
-      );
-    });
+        result.fold(
+          onSuccess: (_) => fail('expected failure'),
+          onFailure: (error) => expect(error, isA<ParsingException>()),
+        );
+      },
+    );
 
     test('does not persist a session when login fails', () async {
       final adapter = _StubAdapter(statusCode: 401, body: '{}');
@@ -171,21 +178,95 @@ void main() {
       await repository.login(email: 'a@b.com', password: 'wrong');
 
       final restored = await sessionStore.load();
-      restored.fold(onSuccess: (session) => expect(session, isNull), onFailure: (_) => fail('expected success(null)'));
+      restored.fold(
+        onSuccess: (session) => expect(session, isNull),
+        onFailure: (_) => fail('expected success(null)'),
+      );
+    });
+  });
+
+  group('AuthRepository.logout', () {
+    test('calls DELETE /sign_out with client_id/client_secret/access_token in the body', () async {
+      final loginAdapter = _StubAdapter(
+        statusCode: 200,
+        body: '{"token":"tok-abc","user":{"id":1}}',
+      );
+      final sessionStore = SessionLocalStore(tokenStorage: FakeTokenStorage());
+      final dio = Dio(BaseOptions(baseUrl: 'https://example.test'))
+        ..httpClientAdapter = loginAdapter;
+      final apiClient = ApiClient(dio: dio);
+      final repository = AuthRepository(apiClient: apiClient, sessionStore: sessionStore);
+
+      await repository.login(email: 'a@b.com', password: 'pw');
+
+      final signOutAdapter = _StubAdapter(statusCode: 200, body: '{}');
+      dio.httpClientAdapter = signOutAdapter;
+
+      final result = await repository.logout();
+
+      expect(result.isSuccess, isTrue);
+      expect(signOutAdapter.lastOptions?.method, 'DELETE');
+      expect(signOutAdapter.lastOptions?.path, '/sign_out');
+      final body = signOutAdapter.lastOptions?.data as Map<String, dynamic>;
+      expect(body['client_id'], AppConfig.apiClientId);
+      expect(body['client_secret'], AppConfig.apiClientSecret);
+      expect(body['access_token'], 'tok-abc');
+    });
+
+    test('still clears the local session even when the remote /sign_out call fails', () async {
+      final loginAdapter = _StubAdapter(
+        statusCode: 200,
+        body: '{"token":"tok-abc","user":{"id":1}}',
+      );
+      final sessionStore = SessionLocalStore(tokenStorage: FakeTokenStorage());
+      final dio = Dio(BaseOptions(baseUrl: 'https://example.test'))
+        ..httpClientAdapter = loginAdapter;
+      final apiClient = ApiClient(dio: dio);
+      final repository = AuthRepository(apiClient: apiClient, sessionStore: sessionStore);
+
+      await repository.login(email: 'a@b.com', password: 'pw');
+      dio.httpClientAdapter = _ConnectionErrorAdapter();
+
+      final result = await repository.logout();
+
+      expect(result.isSuccess, isTrue);
+      final restored = await sessionStore.load();
+      restored.fold(
+        onSuccess: (session) => expect(session, isNull),
+        onFailure: (_) => fail('expected no session'),
+      );
+    });
+
+    test('does not call the remote endpoint when there is no active session', () async {
+      final adapter = _StubAdapter(statusCode: 200, body: '{}');
+      final sessionStore = SessionLocalStore(tokenStorage: FakeTokenStorage());
+      final repository = _buildRepository(adapter, sessionStore: sessionStore);
+
+      final result = await repository.logout();
+
+      expect(result.isSuccess, isTrue);
+      expect(adapter.lastOptions, isNull);
     });
   });
 
   group('AuthRepository unauthorized wiring', () {
     test('a 401/403 on any later call clears the local session', () async {
-      final loginAdapter = _StubAdapter(statusCode: 200, body: '{"token":"tok-abc","user":{"id":1}}');
+      final loginAdapter = _StubAdapter(
+        statusCode: 200,
+        body: '{"token":"tok-abc","user":{"id":1}}',
+      );
       final sessionStore = SessionLocalStore(tokenStorage: FakeTokenStorage());
-      final dio = Dio(BaseOptions(baseUrl: 'https://example.test'))..httpClientAdapter = loginAdapter;
+      final dio = Dio(BaseOptions(baseUrl: 'https://example.test'))
+        ..httpClientAdapter = loginAdapter;
       final apiClient = ApiClient(dio: dio);
       final repository = AuthRepository(apiClient: apiClient, sessionStore: sessionStore);
 
       await repository.login(email: 'a@b.com', password: 'pw');
       var restored = await sessionStore.load();
-      restored.fold(onSuccess: (session) => expect(session, isNotNull), onFailure: (_) => fail('expected a session'));
+      restored.fold(
+        onSuccess: (session) => expect(session, isNotNull),
+        onFailure: (_) => fail('expected a session'),
+      );
 
       // Simulate a later call to some other endpoint returning 401.
       dio.httpClientAdapter = _StubAdapter(statusCode: 401, body: '{}');
@@ -195,7 +276,10 @@ void main() {
       await Future<void>.delayed(Duration.zero);
 
       restored = await sessionStore.load();
-      restored.fold(onSuccess: (session) => expect(session, isNull), onFailure: (_) => fail('expected no session'));
+      restored.fold(
+        onSuccess: (session) => expect(session, isNull),
+        onFailure: (_) => fail('expected no session'),
+      );
     });
   });
 }

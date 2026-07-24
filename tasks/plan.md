@@ -130,7 +130,9 @@ Sumber: audit langsung ke `lib/features/auth/data/services/auth_service.dart`,
 
 ## Open Questions
 
-- Apakah endpoint `/sign_out` (logout server-side) perlu dipanggil di langkah ini, atau cukup
-  clear storage lokal? → **Diasumsikan: cukup clear lokal untuk Langkah 2** (fire-and-forget
-  `/sign_out` bisa ditambah nanti, tidak krusial untuk correctness auth guard). Beri tahu saya
-  kalau ini harus masuk sekarang.
+- ~~Apakah endpoint `/sign_out` (logout server-side) perlu dipanggil di langkah ini, atau cukup
+  clear storage lokal?~~ → **Resolved (sesi bugfix AppConfig)**: user memutuskan implementasikan
+  sekarang. `AuthRepository.logout()` memanggil `DELETE /sign_out` (body:
+  `client_id`/`client_secret`/`access_token`, lihat `tasks/api-map.md`) secara best-effort —
+  kegagalan panggilan remote (config hilang, network error, dll.) tidak menghalangi clear session
+  lokal, karena itu adalah bagian yang security-critical.
