@@ -182,12 +182,24 @@ PriceCalculationResult resolveFinalPrice({
   var isFloorApplied = false;
   final floorPrice = item.bottomPriceAnalyst;
   if (floorPrice > 0 && finalPrice < floorPrice) {
-    appliedDiscounts = computeDiscountsFromTarget(
-      target: floorPrice,
-      baseTotalEup: baseTotalEup,
-      ceilings: ceilings,
-    );
-    finalPrice = applyCascadingDiscounts(baseTotalEup, appliedDiscounts);
+    if (floorPrice > baseTotalEup) {
+      // The floor itself is above this anchor's (possibly EUP-masked) base
+      // price — a discount can only ever shrink a price, never grow it
+      // past its own base, so `computeDiscountsFromTarget` can't reach the
+      // floor here (it would just return `[]`, leaving `finalPrice` stuck
+      // at `baseTotalEup`, still under the floor it claims to enforce).
+      // Set the floor directly, mirroring how the markup path above
+      // assigns `targetPrice` directly when it exceeds the base.
+      appliedDiscounts = const [];
+      finalPrice = floorPrice;
+    } else {
+      appliedDiscounts = computeDiscountsFromTarget(
+        target: floorPrice,
+        baseTotalEup: baseTotalEup,
+        ceilings: ceilings,
+      );
+      finalPrice = applyCascadingDiscounts(baseTotalEup, appliedDiscounts);
+    }
     isFloorApplied = true;
     isMarkup = false;
   }

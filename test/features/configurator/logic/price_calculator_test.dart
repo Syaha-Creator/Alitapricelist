@@ -229,6 +229,10 @@ void main() {
         final noInput = resolveFinalPrice(item: malformed, anchor: AnchorType.kasur);
         expect(noInput.baseTotalEup, 0);
         _expectFinite(noInput);
+        // floorPrice (100) > baseTotalEup (0): the floor must still be
+        // reached, not left stuck at the unreachable-by-discount base.
+        expect(noInput.isFloorApplied, isTrue);
+        expect(noInput.finalPrice, 100);
 
         final withTarget = resolveFinalPrice(
           item: malformed,
@@ -243,6 +247,31 @@ void main() {
           manualDiscounts: [0.5],
         );
         _expectFinite(withManual);
+      },
+    );
+
+    test(
+      'adversarial: floorPrice above baseTotalEup (anchor-masked base smaller than a '
+      'full-set floor) must still raise finalPrice to the floor, not leave it below',
+      () {
+        // Same row as baseItem, but anchor=headboard masks kasur+divan EUP
+        // out, so baseTotalEup collapses to 1,155,000 while
+        // bottomPriceAnalyst (2,000,000) still reflects the full set. A
+        // discount can only ever shrink a price, never grow it past its own
+        // base, so the floor here is unreachable via
+        // computeDiscountsFromTarget — resolveFinalPrice must special-case
+        // this the same way it special-cases markup, or isFloorApplied ends
+        // up `true` while finalPrice is still under the floor it claims to
+        // enforce.
+        final result = resolveFinalPrice(item: baseItem, anchor: AnchorType.headboard);
+        expect(result.baseTotalEup, 1155000);
+        expect(result.isFloorApplied, isTrue);
+        expect(
+          result.finalPrice,
+          closeTo(2000000, 0.001),
+          reason: 'finalPrice must be raised all the way to the floor, not left at base',
+        );
+        expect(result.finalPrice, greaterThanOrEqualTo(result.floorPrice));
       },
     );
   });
