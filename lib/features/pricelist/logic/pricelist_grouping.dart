@@ -1,5 +1,6 @@
 import 'package:alita_pricelist/features/pricelist/data/models/master_data.dart';
 import 'package:alita_pricelist/features/pricelist/data/models/pricelist_item.dart';
+import 'package:alita_pricelist/features/pricelist/logic/pricelist_anchor.dart';
 
 /// Brands are filtered down to the ones belonging to [channel] via the
 /// client-side `pl_channel_id` join documented in `tasks/plan.md` (there is
@@ -50,17 +51,12 @@ List<PricelistItem> groupPricelistItemsByName(List<PricelistItem> items) {
 /// component at all (bare frame, headboard-only, accessory row, ...) has
 /// `kasur` empty or literally `"Tanpa Kasur"` ("no mattress"), in which
 /// case the next non-empty component becomes the group's identity instead.
+/// Uses the shared [isComponentPresent] check (also used by the
+/// configurator's anchor resolution, SPEC.md §8 Step 4) so the two don't
+/// drift apart.
 String _modelGroupName(PricelistItem item) {
-  for (final (value, placeholder) in [
-    (item.kasur, 'tanpa kasur'),
-    (item.divan, 'tanpa divan'),
-    (item.headboard, 'tanpa headboard'),
-    (item.sorong, 'tanpa sorong'),
-  ]) {
-    final trimmed = value.trim();
-    if (trimmed.isNotEmpty && trimmed.toLowerCase() != placeholder) {
-      return trimmed;
-    }
+  for (final value in [item.kasur, item.divan, item.headboard, item.sorong]) {
+    if (isComponentPresent(value)) return value.trim();
   }
   return item.name;
 }

@@ -1,230 +1,215 @@
-# Implementation Plan: Pricelist Browsing (SPEC.md §8 Step 3)
+# Implementation Plan: Kalkulasi Harga / Configurator (SPEC.md §8 Step 4)
 
 ## Overview
 
-Home page (tidak ada dashboard terpisah) yang menampilkan grid produk pricelist, dengan filter
-berjenjang Area → Channel → Brand, search (nama produk), sort (nama/harga), dan fallback ke cache
-lokal (file JSON) saat network gagal, dengan indikator `isFromStaleCache` ke UI. Endpoint dan
-bentuk response semuanya diverifikasi dari audit langsung ke
-`~/StudioProjects/alitapricelist copy` (subagent report, bukan tebakan) — lihat bagian "Kontrak
-API" di bawah.
+Modul kalkulasi harga murni (`price_calculator.dart`) untuk configurator, plus resolusi varian
+sibling, item lookup (untuk nomor artikel kain/warna), dan halaman configurator itu sendiri —
+dibangun di atas `PricelistItem` (Step 3, sudah punya seluruh field mentah `eupKasur..eupSorong`,
+`disc1..8`, `bonus1..8`, `bottomPriceAnalyst`) tanpa parser kedua. Kontrak formula di bawah
+diverifikasi dari audit langsung ke `~/StudioProjects/alitapricelist copy` (`product_detail_
+utils.dart`, `product_variant_resolver.dart`, `product_detail_page.dart`, `discount_modal.dart`,
+`item_lookup_provider.dart`, plus test lama `product_detail_utils_test.dart` untuk angka yang
+sudah terverifikasi oleh test itu sendiri) — bukan tebakan baru.
 
-## Keputusan yang sudah dikonfirmasi user (AskQuestion sebelum implementasi)
+## Keputusan yang sudah dikonfirmasi user
 
-1. **Area/Channel/Brand: TANPA file cache di langkah ini** — panggil network langsung setiap kali
-   (`network_only`). Cache file + TTL bisa ditambah nanti kalau perlu; app lama punya ini (TTL 6
-   jam) tapi scope eksplisit user hanya minta cache untuk `filtered_pl`.
-2. **Grid mengelompokkan baris per nama model** (`group_by_name`) — `filtered_pl` mengembalikan
-   banyak baris per model (satu per ukuran/varian), direplikasi dari app lama: satu card per nama
-   produk, harga yang ditampilkan = harga terendah yang > 0 di antara variannya. Ini demi SPEC
-   goal #1 ("semua fitur versi lama berjalan tanpa regresi").
-3. **Search hanya mencocokkan nama produk** (`name_only`) — TIDAK match ke `description`, karena
-   `description` (dari `detail_list`) sering kosong dan jatuh ke placeholder string default yang
-   sama untuk semua produk (beda dari app lama yang match name+description).
+1. **Scope varian disederhanakan, hanya anchor kasur** — mayoritas kasus (set kasur+divan+
+   headboard+sorong). Anchor divan/headboard/sorong standalone (produk aksesoris tanpa kasur)
+   didokumentasikan sebagai follow-up terpisah, bukan blocker Step 4.
+2. **Item lookup disertakan sekarang** — fungsinya murni memilih varian kain/warna per komponen
+   (nomor artikel pabrik); dikonfirmasi dari kode lama bahwa lookup TIDAK pernah masuk ke
+   kalkulasi harga, hanya dipakai untuk snapshot cart/order.
+3. **Floor (`bottomPriceAnalyst`) SELALU ditegakkan di kedua jalur input** (target-harga ATAU
+   input manual per-tier) — deviasi yang disengaja dari app lama, yang punya bug nyata: floor
+   hanya dicek di jalur target-harga, input manual per-tier bisa lolos di bawah floor tanpa
+   peringatan sama sekali kalau ceiling `disc1..8` mengizinkan. Modul baru menutup celah ini
+   dengan satu titik enforcement yang dijalankan seragam di akhir `resolveFinalPrice`, apa pun
+   jalur yang dipakai untuk sampai ke `finalPrice`.
+4. **Markup (target ≥ base) didukung** — app lama diam-diam mengabaikan kasus ini (harga tetap
+   di base). Sekarang: `target > base` → `finalPrice = target` langsung, tanpa diskon
+   (`isMarkup = true`).
 
-## Kontrak API (diverifikasi dari audit `alitapricelist copy`, BUKAN tebakan)
+## Kontrak formula
 
-Sumber: `lib/features/pricelist/logic/master_data_provider.dart`, `product_provider.dart`,
-`item_lookup_provider.dart`, `accessory_provider.dart`, `data/models/{product,item_lookup,
-accessory}.dart`, `core/services/api_client.dart`.
+### Anchor (komponen utama produk)
 
-**Auth pada semua endpoint ini**: query param `access_token` + `client_id` + `client_secret` —
-sudah otomatis lewat `ApiClient` (`access_token`) untuk yang perlu ditambah manual
-(`client_id`/`client_secret`, sama seperti `AuthRepository.login()`).
+Hierarki kasur > divan > headboard > sorong, pola SAMA dengan `_modelGroupName` yang sudah ada
+di `pricelist_grouping.dart` (Step 3) — sekarang diekstrak jadi helper bersama
+`lib/features/pricelist/logic/pricelist_anchor.dart` supaya tidak ada dua implementasi
+"isPresent"/hierarki yang bisa drift (salah satu temuan audit di app lama: ada 2 implementasi
+reverse-calc yang beda file, dengan angka yang beda pula).
 
-### GET `/api/pl_areas`, `/api/pl_channels`, `/api/pl_brands`
+```
+isComponentPresent(field) = field.trim().toLowerCase() tidak kosong && tidak diawali "tanpa"
 
-- Tidak ada model Dart di app lama (raw `Map`) — field di bawah ini disimpulkan dari cara field
-  itu dibaca di provider (bukan dari `fromJson` eksplisit).
-- **Envelope toleran** — app lama menerima SEMUA bentuk ini: bare `List`, `{"data": [...]}`,
-  `{"pl_areas"/"pl_channels"/"pl_brands": [...]}`, atau nested `{"result": {...salah satu di
-  atas...}}`. Kita replikasi toleransi ini (bukan cuma pilih satu bentuk) supaya tidak crash kalau
-  backend kembalikan bentuk yang sedikit berbeda antar endpoint.
-- **Area**: field `name` (fallback ke `area` kalau `name` tidak ada) → `String`.
-- **Channel**: `{"id": 223, "channel": "Direct"}` → `id` (int), `channel` (String, nama).
-- **Brand**: `{"id": 622, "brand": "Comforta", "pl_channel_id": 223}` → `id` (int), `brand`
-  (String, nama), `plChannelId` (int) — dipakai untuk filter Brand berdasarkan Channel terpilih
-  (join client-side, PERSIS app lama: `brand.pl_channel_id == channel.id`).
+anchor = isComponentPresent(kasur) ? kasur
+       : isComponentPresent(divan) ? divan
+       : isComponentPresent(headboard) ? headboard
+       : sorong
+```
 
-### GET `/api/rawdata_price_lists/filtered_pl?area=...&channel=...&brand=...`
+### Base price (`baseTotalEup`)
 
-- Query: `area` (Title Case — app lama selalu Title-Case sebelum kirim), `channel`, `brand` (nama
-  channel/brand, bukan id).
-- Envelope: `{"data": [...]}` atau bare `[...]`.
-- Baris (`PricelistItem`) — snake_case dari API, field & fallback (SEMUA sudah exact, dari
-  `mapFilteredPlRawListToProducts`):
+EUP di-mask berdasar anchor — kasur EUP hanya ikut kalau anchor==kasur; divan EUP ikut kalau
+anchor==kasur ATAU anchor==divan (produk beranchor divan tetap punya biaya divan-nya sendiri);
+headboard/sorong EUP SELALU ikut (aksesori yang menempel di komponen utama apa pun):
 
-  | Field model | JSON key(s) | Parsing |
-  |---|---|---|
-  | `id` | `id` | `.toString()`, default `''` |
-  | `name` | `kasur` + `ukuran` | `'$kasur $ukuran'.trim()`; kosong → `'Produk Tanpa Nama'` |
-  | `price` | `end_user_price` | num→double, else `tryParse`, else `0.0` |
-  | `imageUrl` | `image_url`/`imageUrl`/`gambar`/`foto`/`thumbnail`/`photo_url`/`product_image`/`image` | url http(s) pertama yang ditemukan; else placeholder |
-  | `category` | `series` | default `'Uncategorized'` |
-  | `description` | `detail_list` | default placeholder Indonesia |
-  | `channel`, `brand` | `channel`/`brand` | fallback ke param request kalau kosong |
-  | `program` | `program` | default `'-'` |
-  | `kasur`,`ukuran`,`divan`,`headboard`,`sorong` | sama | default `''` |
-  | `isSet` | `set` | `json['set'] == true` (strict, tidak ada `!`) |
-  | `pricelist`,`eupKasur`,`eupDivan`,`eupHeadboard`,`eupSorong` | `pricelist`,`eup_kasur`,`eup_divan`,`eup_headboard`,`eup_sorong` | toDouble |
-  | `plKasur`,`plDivan`,`plHeadboard`,`plSorong` | `pl_kasur`,`pl_divan`,`pl_headboard`,`pl_sorong` | toDouble |
-  | `bonus1..8` | `bonus_1..8` | `?.toString()` |
-  | `qtyBonus1..8` | `qty_bonus1..8` | int atau `tryParse` |
-  | `plBonus1..8` | `pl_bonus_1..8` | null kalau key null, else toDouble |
-  | `bottomPriceAnalyst` | `bottom_price_analyst` | toDouble, default 0 |
-  | `disc1..8` | `disc_i`/`disc$i`/`discount_i`/`max_disc_i` | key pertama yang bernilai > 0; kalau > 1 dibagi 100 |
+```
+kasurEup = anchor == kasur ? item.eupKasur : 0
+divanEup = (anchor == kasur || anchor == divan) ? item.eupDivan : 0
+baseTotalEup = kasurEup + divanEup + item.eupHeadboard + item.eupSorong
+```
 
-  Model ini disengaja mencakup SEMUA field mentah (bukan cuma yang dipakai grid browsing), supaya
-  Langkah 4 (configurator/kalkulasi harga) tidak perlu parsing ulang — field kasur/divan/headboard/
-  sorong/bonus/disc memang tidak dipakai UI grid di langkah ini, tapi sudah benar secara kontrak.
+**Contoh angka konkret (diverifikasi dari data app lama):**
+`eupKasur = 3.500.000, eupDivan = 1.750.000, eupHeadboard = 1.155.000, eupSorong = 0`
+→ anchor=kasur → `baseTotalEup = 6.405.000`.
+Anchor bukan kasur (misal headboard) pada item yang sama → `baseTotalEup = 1.155.000` (hanya
+headboard+sorong, kasur & divan di-mask ke 0).
 
-### GET `/api/pl_lookup_item_nums`, GET `/api/pl_accessories`
+`pricelist`/`plKasur..plSorong` = harga coret (display saja). `bonus1..8`/`qtyBonus*`/`plBonus*`
+= barang gratis (display saja). Keduanya **tidak** masuk formula harga sama sekali.
 
-- Tidak dipakai UI grid di langkah ini (dipakai configurator, Langkah 4) — tapi repository tetap
-  menyediakan method-nya sekarang (sesuai instruksi user: "Repository ... untuk kelima endpoint di
-  atas") supaya tidak ada raw JSON yang lolos dari layer network.
-- **ItemLookupEntry**: `{"tipe","ukuran","item_num","jenis_kain","warna_kain"}` → semua
-  `?.toString()`, default `''` kecuali `jenisKain`/`warnaKain` nullable.
-- **Accessory**: `{"tipe","item_num","ukuran","pricelist"}` → sama, `pricelist` toDouble.
-- Envelope: `status == 'success'` lalu ambil `result` (item lookup) atau `result`/`data` (accessory).
+### Cascading discount (`disc1..disc8`)
+
+Fraksi 0–1, ceiling per tier dari API. Tier dengan ceiling `0` di-drop (tidak dikonfigurasi untuk
+item ini), urutan index tier lain tetap dipertahankan:
+
+```
+ceilings = [disc1..disc8].where(d > 0)
+
+finalPrice = baseTotalEup
+for d in appliedDiscounts (urutan tier 1→8):
+    finalPrice *= (1 - d)
+```
+
+**Contoh angka konkret (diverifikasi ke test app lama `product_detail_utils_test.dart`):**
+`cascade(100, [0.1, 0.2]) == 72` (100 × 0.9 × 0.8 = 72).
+
+### Reverse-calc dari target harga akhir
+
+Closed-form greedy per tier (BUKAN binary search) — untuk tiap ceiling (urut), ambil diskon
+terbesar yang cukup untuk mencapai target tanpa melebihi ceiling tier itu, lalu lanjut ke tier
+berikutnya dengan base yang sudah terdiskon:
+
+```
+if target <= 0 or baseTotalEup <= 0 or ceilings kosong: return []
+
+base = baseTotalEup
+hasil = []
+for limit in ceilings:
+    if base <= 0: break
+    d = clamp(1 - target/base, 0, limit)
+    if d ≈ 0 (<= 1e-9): break
+    hasil.add(d)
+    base *= (1 - d)
+return hasil
+```
+
+**Contoh angka konkret (diverifikasi ke behavior app lama):**
+`base=100, ceilings=[0.5, 0.5]`:
+- `target=50` → `[0.5]` (tier 1 sendiri: `1 - 50/100 = 0.5`, pas ceiling, base jadi 50, tier 2
+  butuh `1 - 50/50 = 0` → stop).
+- `target=40` → `[0.5, 0.2]` (tier 1 ambil MAKSIMAL dulu sampai ceilingnya: `1 - 40/100 = 0.6`
+  dipangkas ke ceiling `0.5` → base jadi 50; tier 2: `1 - 40/50 = 0.2`, di bawah ceiling jadi
+  dipakai penuh).
+
+Guard `baseTotalEup <= 0` mencegah pembagian oleh nol/negatif (NaN/Infinity) — sesuai guardrail
+crash-prevention SPEC.md §6: fungsi ini tidak pernah throw, selalu `[]` yang aman.
+
+### Floor price (`bottomPriceAnalyst`)
+
+App lama: strict `<` (bukan `<=`), clamp NAIK ke floor (bukan ditolak), toast "Harga disesuaikan
+ke nilai minimum", diskon dihitung ulang dari floor. Batas `target == bottomPriceAnalyst` (persis
+sama) TIDAK dianggap di bawah floor — tidak ada re-clamp, tidak ada warning.
+
+**Keputusan Anda (lihat #3 di atas)**: floor SELALU ditegakkan di kedua jalur, satu titik
+enforcement di akhir `resolveFinalPrice`, dijalankan setelah `finalPrice` dihitung dari jalur
+apa pun (target-based reverse-calc, manual per-tier, ATAUPUN markup — edge case, tapi
+pengecekannya harus seragam):
+
+```
+if item.bottomPriceAnalyst > 0 and finalPrice < item.bottomPriceAnalyst:
+    appliedDiscounts = computeDiscountsFromTarget(target: bottomPriceAnalyst, baseTotalEup, ceilings)
+    finalPrice = applyCascadingDiscounts(baseTotalEup, appliedDiscounts)
+    isFloorApplied = true
+```
+
+### Markup (target ≥ base)
+
+App lama: diam-diam diabaikan, harga tetap di base (bug tersembunyi — user yang input target di
+atas base tidak mendapat apa yang mereka minta, tanpa penjelasan).
+
+**Keputusan Anda (lihat #4 di atas)**: didukung — `target > baseTotalEup` → `finalPrice = target`
+langsung, `appliedDiscounts = []`, `isMarkup = true`. Floor check tetap dijalankan seragam di
+akhir (secara teori tidak akan pernah trigger di jalur ini karena `target > base >= floor` pada
+data valid, tapi enforcement tetap seragam demi keamanan alih-alih mengasumsikan invarian itu).
+
+### Rounding
+
+TIDAK ADA rounding di pipeline `price_calculator.dart` — semua `double` mentah, sama seperti app
+lama. Rounding hanya terjadi di layer formatting tampilan (mata uang), bukan di kalkulasi.
+
+### Item lookup (`pl_lookup_item_nums`)
+
+Disertakan sekarang (keputusan #2). Fungsinya murni memilih varian kain/warna per komponen
+(untuk nomor artikel pabrik) — TIDAK mempengaruhi harga sama sekali. Grouping:
+`Map<tipe.toLowerCase(): List<ItemLookupEntry>>`, difilter lagi per `ukuran == effectiveSize`.
+Belum diimplementasikan di iterasi ini (task `item-lookup` di `tasks/todo.md`, dikerjakan agent
+lain secara paralel).
 
 ## Keputusan arsitektur
 
-1. **Model API (snake_case) == model domain** — tidak ada pemisahan DTO vs domain seperti
-   `LoginResponse` vs `AuthUser`; `PricelistItem` langsung dipakai baik untuk hasil network maupun
-   yang disimpan ke cache file (as JSON, camelCase field Dart standar via `toJson`). Ini lebih
-   simpel dari app lama (yang punya 2 bentuk: live snake_case vs cache camelCase) karena kita
-   kontrol keduanya lewat satu `fromJson`/`toJson` Freezed.
-2. **Cascading filter = satu `PricelistFilterNotifier`** (bukan 3 `StateProvider` independen +
-   `ref.listen` untuk reset). State: `{String? area, String? channel, String? brand}`. Method
-   `selectArea()`/`selectChannel()`/`selectBrand()` masing-masing reset field di bawahnya secara
-   eksplisit — ini yang membuat guard "ganti Area reset Channel+Brand" mudah di-unit-test tanpa
-   widget.
-3. **Brand list = derived provider**, bukan network call terpisah per channel — filter brand dari
-   HASIL `brandsProvider` (semua brand) berdasarkan `plChannelId == channel.id` milik channel
-   terpilih (`selectedChannel`). Kalau channel belum dipilih → list brand kosong.
-4. **Cache**: `PricelistCacheStore` (file JSON di `getApplicationSupportDirectory()`, pola sama
-   `path_provider` yang sudah ada di `pubspec.yaml`). Key = hash dari
-   `area|channel|brand` (lowercase, trim) supaya tidak ada karakter aneh di nama file. Isi file:
-   `{"cachedAt": "<ISO8601>", "items": [...PricelistItem.toJson()]}`. TIDAK ada TTL check saat
-   baca — dipakai HANYA sebagai fallback saat network gagal (persis instruksi user & app lama).
-5. **`PricelistSnapshot`** (bukan Freezed, cukup value object sederhana) = `{items:
-   List<PricelistItem>, isFromStaleCache: bool, fetchedAt: DateTime}` — dikembalikan repository
-   sebagai `Result<PricelistSnapshot>`. `fetchedAt` diisi dari `cachedAt` file kalau dari cache,
-   atau `DateTime.now()` kalau dari network — dipakai UI untuk teks "data dari cache jam ...".
-6. **Repository, bukan network call langsung dari provider** (beda dari app lama yang manggil
-   `ApiClient.instance` langsung dari provider) — `PricelistRepository` di
-   `features/pricelist/data/services/`, konsisten dengan `AuthRepository`. Semua network+cache
-   logic ada di repository; provider hanya orkestrasi state.
-7. **Grouping by name**: `PricelistRepository` mengembalikan raw items (semua baris/varian) —
-   grouping-jadi-satu-card-per-nama dilakukan di provider layer (`groupedPricelistProvider`, murni
-   fungsi tanpa side effect), BUKAN di repository, supaya repository tetap merepresentasikan
-   kontrak API asli 1:1 dan grouping bisa diuji terpisah dari network/cache.
-   **Koreksi ditemukan lewat TDD (Task 9)**: grouping key yang benar adalah `kasur` (dengan
-   fallback ke `divan`/`headboard`/`sorong`/`name` kalau `kasur` kosong/`"Tanpa Kasur"`) — BUKAN
-   `PricelistItem.name` (yang berisi `"<kasur> <ukuran>"`). Kalau grouping pakai `name`, tiap
-   ukuran akan tetap jadi card sendiri-sendiri karena `name` selalu unik per ukuran — itu
-   menggagalkan tujuan grouping. Ini sesuai persis `groupProductsByVariantModel` di app lama
-   (`product_provider.dart:534`), ditemukan test gagal duluan sebelum kode diperbaiki (RED→GREEN).
-   Card hasil grouping menampilkan `name` = nama model (misal `"Comforta Elite"`), bukan nama
-   varian ukuran.
-8. **Sort options**: "Nama (A-Z)" (default), "Harga: Rendah ke Tinggi", "Harga: Tinggi ke Rendah"
-   — tidak menyalin opsi "Terbaru" app lama (itu sebenarnya no-op/placeholder karena tidak ada
-   field timestamp asli untuk sorting kronologis di data ini).
-9. **UI**: ganti `PlaceholderHomePage` jadi `PricelistHomePage` langsung di route `/` (bukan
-   halaman baru + placeholder tetap ada) — sesuai instruksi "home page (tidak ada dashboard
-   terpisah)".
+1. **Anchor logic diekstrak jadi shared helper** — `lib/features/pricelist/logic/
+   pricelist_anchor.dart` (`enum AnchorType`, `isComponentPresent`, `resolveAnchor`), dipakai baik
+   oleh `pricelist_grouping.dart` (Step 3, `_modelGroupName`) maupun `price_calculator.dart`
+   (Step 4). Behavior `_modelGroupName` TIDAK berubah — hanya delegasi ke helper bersama, semua
+   test Step 3 yang sudah ada tetap hijau tanpa modifikasi.
+2. **Modul kalkulasi murni, tanpa Widget/BuildContext** (SPEC.md §6) — `price_calculator.dart`
+   hanya berisi top-level functions + satu value class hasil (`PriceCalculationResult`, plain
+   class dengan `==`/`hashCode` manual, bukan Freezed — terlalu kecil untuk butuh code gen).
+   Single entry point `resolveFinalPrice({item, anchor, manualDiscounts?, targetPrice?})`
+   menegakkan floor & markup secara seragam, apa pun jalur inputnya.
+3. **Tidak ada `Result<T>`/`AppException` di modul ini** — semua fungsi di sini murni matematika
+   tanpa I/O dan tidak pernah gagal (menurut definisi, degradasi ke default aman `0`/`[]`
+   menggantikan exception, SPEC.md §6), jadi tidak ada kegagalan yang perlu direpresentasikan.
+4. **TDD ketat**: test ditulis mengacu angka yang SAMA dengan yang sudah terverifikasi oleh test
+   app lama (`product_detail_utils_test.dart`) untuk kasus-kasus yang overlap, plus kasus baru
+   sesuai 2 keputusan deviasi (floor manual-tier, markup) yang secara sengaja akan GAGAL kalau
+   modul baru punya celah yang sama dengan app lama.
 
 ## Task List
 
-### Phase 1: Models (murni data, tanpa network)
-
-- [ ] **Task 1**: Model `Area`, `Channel`, `Brand` (Freezed, hand-written `fromJson` seperti
-      `LoginResponse`/`AuthUser` — bukan `json_serializable` karena perlu logic
-      fallback/toleransi-envelope). Tambah fungsi murni `parseMasterDataEnvelope(dynamic decoded,
-      {required String listKey})` yang menangani semua bentuk envelope (bare list/`data`/
-      `listKey`/nested `result`), dipakai ketiganya. Test: setiap bentuk envelope + field
-      fallback (`area` vs `name`) + JSON kosong/rusak → list kosong, bukan throw.
-- [ ] **Task 2**: Model `PricelistItem` (Freezed, hand-written `fromJson` sesuai tabel kontrak di
-      atas) + `toJson` untuk cache. Test: parsing lengkap, fallback tiap field (terutama
-      `imageUrl` multi-key, `disc1..8` multi-key-first-match, `bonus`/`qtyBonus`/`plBonus` null
-      handling), dan envelope `{"data":[...]}` vs bare list.
-- [ ] **Task 3**: Model `ItemLookupEntry`, `Accessory` (Freezed, hand-written `fromJson`, lebih
-      sederhana dari Task 2). Test: field lengkap + field hilang → default.
-
-### Checkpoint 1
-- [ ] Semua test Phase 1 hijau, `flutter analyze` bersih, commit.
-
-### Phase 2: Repository + cache
-
-- [ ] **Task 4**: `PricelistRepository.getAreas()/getChannels()/getBrands()` — panggil
-      `ApiClient.get`, parse pakai `parseMasterDataEnvelope`, `Result<List<T>>`. Test: sukses,
-      401/network/parsing error → `AppException` yang sesuai (pola sama `AuthRepository` test).
-- [ ] **Task 5**: `PricelistCacheStore` (file JSON, `path_provider`) — `save(key, items)`,
-      `load(key)` (return `null` kalau file tidak ada/corrupt, bukan throw), `keyFor(area, channel,
-      brand)`. Test: round-trip save→load, load saat file belum ada, load saat file corrupt
-      (harus `null`, tidak throw).
-- [ ] **Task 6**: `PricelistRepository.getFilteredPricelist(area, channel, brand)` — network dulu;
-      sukses → simpan ke cache + `isFromStaleCache: false`; network gagal
-      (`NetworkException`/`TimeoutAppException`) → coba cache; ada isi → `isFromStaleCache: true`;
-      cache kosong juga → propagate error asli (jangan ditelan). Error lain (401/parsing/dll,
-      BUKAN network/timeout) → **tidak** fallback ke cache, langsung `Result.failure` (biar user
-      tahu ada masalah nyata, bukan cuma sinyal lemah). Test: kasus TDD wajib dari instruksi user:
-      network sukses (`isFromStaleCache=false` + cache ter-refresh), network gagal + ada cache
-      (`isFromStaleCache=true`), network gagal + tidak ada cache (failure asli diteruskan), error
-      non-network (401/parsing) tidak fallback ke cache.
-- [ ] **Task 7**: `PricelistRepository.getItemLookups()/getAccessories()` — sama pola Task 4,
-      tanpa cache (di luar scope UI langkah ini, tapi tetap `Result<T>`, bukan raw JSON).
-
-### Checkpoint 2
-- [ ] Repository + cache test hijau (termasuk semua kasus cache fallback), `flutter analyze`
-      bersih, commit.
-
-### Phase 3: Filter berjenjang + grouping/search/sort (logic, sebelum UI)
-
-- [ ] **Task 8**: `PricelistFilterNotifier` (`Notifier<PricelistFilterState>`) —
-      `selectArea(String)` reset channel+brand ke null; `selectChannel(String)` reset brand ke
-      null; `selectBrand(String)` tidak reset apa-apa. Test murni logic (tanpa widget): urutan
-      pilih Area→Channel→Brand lalu ganti Area di tengah → Channel & Brand harus null lagi; ganti
-      Channel setelah Brand terpilih → Brand harus null.
-- [ ] **Task 9**: `brandsForSelectedChannelProvider` (derived, filter `brand.plChannelId ==
-      channel.id`), `groupedPricelistProvider` (pure function: group by `name`, ambil item dengan
-      `price` terendah yang `> 0`; kalau semua harga 0/tidak ada yang valid, tetap ambil satu
-      representatif — jangan sampai grup hilang total). Test: grouping dengan beberapa
-      harga (termasuk yang 0), channel→brand filter join.
-- [ ] **Task 10**: `searchQueryProvider` + `sortOptionProvider` + `filteredSortedPricelistProvider`
-      (pure function: filter nama case-insensitive, lalu sort sesuai opsi). Test: search
-      cocok/tidak cocok (case-insensitive), tiap opsi sort.
-
-### Checkpoint 3
-- [ ] Semua test logic Phase 3 hijau (murni Dart, tanpa widget), `flutter analyze` bersih, commit.
-
-### Phase 4: UI — ganti PlaceholderHomePage
-
-- [ ] **Task 11**: `PricelistHomePage` — search box (debounce ringan), tombol sort (bottom sheet
-      atau menu), filter pills Area→Channel→Brand (pakai `PricelistFilterNotifier`, sembunyikan
-      Channel sampai Area dipilih, sembunyikan Brand sampai Channel dipilih), grid
-      `MasonryGridView` (`flutter_staggered_grid_view`, tambah ke `pubspec.yaml`) dari
-      `filteredSortedPricelistProvider`, banner/badge kecil kalau `isFromStaleCache == true`.
-      Wire ke `app_router.dart` (ganti `PlaceholderHomePage` → `PricelistHomePage` di route `/`).
-      Widget test: render filter awal (cuma Area pills), pilih Area → Channel muncul, pilih semua
-      3 filter → grid muncul, banner cache muncul saat `isFromStaleCache=true`.
-
-### Checkpoint 4 (final)
-- [ ] Full test suite hijau, `flutter analyze` 0 issues.
-- [ ] `code-review-and-quality` pass.
-- [ ] Ringkasan + keputusan yang diambil ditunjukkan ke user sebelum lanjut ke Langkah 4.
+- [x] **Task `spec`**: Tulis kontrak formula lengkap (rumus + contoh angka) ke `tasks/plan.md`
+      (dokumen ini).
+- [x] **Task `calc-module`**: Implement `price_calculator.dart` (`calculateBaseTotalEup`,
+      `nonZeroDiscountCeilings`, `applyCascadingDiscounts`, `computeDiscountsFromTarget`,
+      `resolveFinalPrice`, `PriceCalculationResult`) + refactor dedup `pricelist_anchor.dart`.
+- [x] **Task `calc-tests`**: Test murni untuk semua kasus kontrak formula di atas, termasuk edge
+      case floor manual-tier & markup, plus guard `baseTotalEup <= 0`.
+- [ ] **Task `variant-resolver`**: Implement `variant_resolver.dart` (simplified, anchor kasur,
+      dari raw sibling `filteredPricelistSnapshotProvider`) + test. *(Dikerjakan agent lain,
+      paralel — tidak disentuh di iterasi ini.)*
+- [ ] **Task `item-lookup`**: Implement `item_lookup_grouping.dart` + wiring ke
+      `PricelistRepository.getItemLookups()` + test. *(Dikerjakan agent lain, paralel.)*
+- [ ] **Task `configurator-ui`**: Build `ConfiguratorPage` — variant picker, kain/warna picker,
+      breakdown harga, input diskon manual/target, indikator floor/markup.
+- [ ] **Task `wiring`**: Wire tap grid card (`PricelistHomePage`) → `ConfiguratorPage` lewat
+      router.
+- [ ] **Task `review`**: `code-review-and-quality` + ringkasan akhir ke user sebelum Langkah 5
+      (Favorites/Cart).
 
 ## Risks and Mitigations
 
 | Risk | Impact | Mitigasi |
 |---|---|---|
-| Bentuk response Area/Channel/Brand di server production ternyata beda dari yang disimpulkan dari app lama (karena app lama juga cuma baca raw Map, tidak ada kontrak resmi) | Medium | `parseMasterDataEnvelope` toleran ke banyak bentuk; field pakai `?? fallback`, tidak ada `!` — kalau bentuk beda, hasilnya list kosong/field default, bukan crash |
-| `filtered_pl` bisa mengembalikan ribuan baris (banyak varian ukuran) — grouping di client bisa lambat kalau list besar | Low-Medium | Grouping pakai `Map` (O(n)), bukan nested loop; profil kalau ada masalah performa nanti setelah data asli terlihat |
-| Cache file JSON bisa korup (app force-close saat menulis) | Low | `PricelistCacheStore.load()` bungkus try-catch, kembalikan `null` (bukan throw) kalau parse gagal — network tetap jadi sumber utama |
-| Tidak ada akses ke server asli untuk verifikasi response real (sama seperti Langkah 2) | Medium | Semua test pakai mock Dio; kontrak API dari audit kode app lama yang sudah terbukti jalan di production, bukan tebakan baru |
+| Angka reverse-calc/cascading bisa salah kalau ditebak ulang dari nol | Tinggi (langsung memengaruhi harga jual) | Semua contoh angka di kontrak formula diverifikasi ke test app lama yang sudah terbukti benar di production, bukan tebakan baru |
+| Refactor `_modelGroupName` ke helper bersama bisa mengubah behavior Step 3 tanpa disadari | Medium | Test Step 3 (`pricelist_grouping_test.dart`) dijalankan ulang TANPA modifikasi setelah refactor — harus tetap hijau semua sebagai bukti behavior identik |
+| Floor enforcement yang seragam (deviasi dari app lama) bisa punya efek samping tak terduga di kombinasi tier tertentu | Medium | Test eksplisit untuk kasus "manual discount di bawah floor" — kasus yang justru dulu jadi bug nyata di app lama, dibuktikan tertutup di modul baru |
+| Pekerjaan paralel oleh agent lain (`variant_resolver.dart`, `item_lookup_grouping.dart`) bisa konflik file/commit | Low | Scope commit dibatasi hanya ke file yang benar-benar dibuat/diubah pada iterasi ini (`git add` per-file, bukan `-A`) |
 
 ## Open Questions
 
-*(Tidak ada — 3 keputusan yang perlu dikonfirmasi sudah dijawab user sebelum plan ini ditulis;
-lihat bagian "Keputusan yang sudah dikonfirmasi user" di atas.)*
+*(Tidak ada — 4 keputusan yang perlu dikonfirmasi sudah dijawab user sebelum plan ini ditulis;
+lihat bagian "Keputusan yang sudah dikonfirmasi user" di atas. Scope varian standalone
+divan/headboard/sorong didokumentasikan sebagai follow-up eksplisit, bukan open question yang
+memblokir Step 4.)*
