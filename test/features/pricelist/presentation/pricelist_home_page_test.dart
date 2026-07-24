@@ -81,18 +81,31 @@ void main() {
     );
   }
 
-  /// Area/Channel selection only ever triggers network-only master-data
-  /// providers (no file cache — see `pricelist_master_data_provider.dart`),
-  /// so a plain `pumpAndSettle` is enough here.
-  Future<void> tapAndSettle(WidgetTester tester, Finder finder) async {
-    await tester.tap(finder);
-    await tester.pumpAndSettle();
+  /// Taps a filter pill (opens its bottom-sheet picker), then taps the
+  /// option row inside it. Both the sheet's open animation and its
+  /// pop-on-select close animation are finite (not repeating), so a plain
+  /// `pumpAndSettle` is safe here — unlike selecting the Brand (see
+  /// [selectBrandAndWaitForFetch] below), this never triggers real file I/O.
+  /// Taps the `ListTile` inside the just-opened sheet specifically (not
+  /// `find.text(optionText)` alone) — if the option was already selected
+  /// from a previous run in the same provider container (e.g. a second
+  /// `pumpWidget` in the same test reusing widget/element state rather than
+  /// fully remounting), the pill button behind the sheet's semi-transparent
+  /// barrier *also* renders the same text, making a bare text finder
+  /// ambiguous.
+  Future<void> selectFilterOption(WidgetTester tester, Key pillKey, String optionText) async {
+    await tester.tap(find.byKey(pillKey));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.tap(find.widgetWithText(ListTile, optionText));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
   }
 
-  /// Same reasoning as [tapBrandAndWaitForFetch] — used right after
-  /// `pumpWidget` on the *second* app instance in the stale-cache test,
-  /// where a stray pending real `Future` from the previous provider tree's
-  /// teardown can otherwise make a plain `pumpAndSettle` hang.
+  /// Same reasoning as [pumpInitialFrame] — used right after `pumpWidget` on
+  /// the *second* app instance in the stale-cache test, where a stray
+  /// pending real `Future` from the previous provider tree's teardown can
+  /// otherwise make a plain `pumpAndSettle` hang.
   Future<void> pumpInitialFrame(WidgetTester tester) async {
     await tester.runAsync(() async {
       await tester.pump();
@@ -114,42 +127,45 @@ void main() {
   /// (500ms + 1000ms for the two retries a connection error triggers — see
   /// `retry_interceptor.dart`) for the stale-cache scenario, not just a
   /// single successful fetch.
-  Future<void> tapBrandAndWaitForFetch(WidgetTester tester, Finder finder) async {
+  Future<void> selectBrandAndWaitForFetch(WidgetTester tester, Key pillKey, String optionText) async {
+    await tester.tap(find.byKey(pillKey));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
     await tester.runAsync(() async {
-      await tester.tap(finder);
+      await tester.tap(find.widgetWithText(ListTile, optionText));
       await tester.pump();
       await Future<void>.delayed(const Duration(milliseconds: 2000));
       await tester.pump();
     });
   }
 
-  testWidgets('shows only area chips before anything is selected', (tester) async {
+  testWidgets('shows only the area pill before anything is selected', (tester) async {
     await tester.pumpWidget(buildApp());
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const Key('pricelist_area_chips')), findsOneWidget);
-    expect(find.byKey(const Key('pricelist_channel_chips')), findsNothing);
-    expect(find.byKey(const Key('pricelist_brand_chips')), findsNothing);
+    expect(find.byKey(const Key('pricelist_area_pill')), findsOneWidget);
+    expect(find.byKey(const Key('pricelist_channel_pill')), findsNothing);
+    expect(find.byKey(const Key('pricelist_brand_pill')), findsNothing);
     expect(find.byKey(const Key('pricelist_select_filter_prompt')), findsOneWidget);
   });
 
-  testWidgets('selecting an area reveals the channel chips', (tester) async {
+  testWidgets('selecting an area reveals the channel pill', (tester) async {
     await tester.pumpWidget(buildApp());
     await tester.pumpAndSettle();
 
-    await tapAndSettle(tester, find.text('Nasional'));
+    await selectFilterOption(tester, const Key('pricelist_area_pill'), 'Nasional');
 
-    expect(find.byKey(const Key('pricelist_channel_chips')), findsOneWidget);
-    expect(find.byKey(const Key('pricelist_brand_chips')), findsNothing);
+    expect(find.byKey(const Key('pricelist_channel_pill')), findsOneWidget);
+    expect(find.byKey(const Key('pricelist_brand_pill')), findsNothing);
   });
 
   testWidgets('selecting area, channel, and brand shows the product grid', (tester) async {
     await tester.pumpWidget(buildApp());
     await tester.pumpAndSettle();
 
-    await tapAndSettle(tester, find.text('Nasional'));
-    await tapAndSettle(tester, find.text('Direct'));
-    await tapBrandAndWaitForFetch(tester, find.text('Comforta'));
+    await selectFilterOption(tester, const Key('pricelist_area_pill'), 'Nasional');
+    await selectFilterOption(tester, const Key('pricelist_channel_pill'), 'Direct');
+    await selectBrandAndWaitForFetch(tester, const Key('pricelist_brand_pill'), 'Comforta');
 
     expect(find.byKey(const Key('pricelist_grid')), findsOneWidget);
     expect(find.text('Comforta Elite'), findsOneWidget);
@@ -160,9 +176,9 @@ void main() {
     // Warm the cache with a successful load first.
     await tester.pumpWidget(buildApp());
     await tester.pumpAndSettle();
-    await tapAndSettle(tester, find.text('Nasional'));
-    await tapAndSettle(tester, find.text('Direct'));
-    await tapBrandAndWaitForFetch(tester, find.text('Comforta'));
+    await selectFilterOption(tester, const Key('pricelist_area_pill'), 'Nasional');
+    await selectFilterOption(tester, const Key('pricelist_channel_pill'), 'Direct');
+    await selectBrandAndWaitForFetch(tester, const Key('pricelist_brand_pill'), 'Comforta');
     expect(find.byKey(const Key('pricelist_grid')), findsOneWidget);
 
     // Rebuild with a fresh provider tree sharing the same (now-warm) cache
@@ -170,9 +186,9 @@ void main() {
     adapter.failFilteredPl = true;
     await tester.pumpWidget(buildApp());
     await pumpInitialFrame(tester);
-    await tapAndSettle(tester, find.text('Nasional'));
-    await tapAndSettle(tester, find.text('Direct'));
-    await tapBrandAndWaitForFetch(tester, find.text('Comforta'));
+    await selectFilterOption(tester, const Key('pricelist_area_pill'), 'Nasional');
+    await selectFilterOption(tester, const Key('pricelist_channel_pill'), 'Direct');
+    await selectBrandAndWaitForFetch(tester, const Key('pricelist_brand_pill'), 'Comforta');
 
     expect(find.byKey(const Key('pricelist_stale_cache_banner')), findsOneWidget);
     expect(find.text('Comforta Elite'), findsOneWidget);
@@ -187,9 +203,9 @@ void main() {
 
     await tester.pumpWidget(buildApp());
     await tester.pumpAndSettle();
-    await tapAndSettle(tester, find.text('Nasional'));
-    await tapAndSettle(tester, find.text('Direct'));
-    await tapBrandAndWaitForFetch(tester, find.text('Comforta'));
+    await selectFilterOption(tester, const Key('pricelist_area_pill'), 'Nasional');
+    await selectFilterOption(tester, const Key('pricelist_channel_pill'), 'Direct');
+    await selectBrandAndWaitForFetch(tester, const Key('pricelist_brand_pill'), 'Comforta');
 
     expect(find.text('Comforta Elite'), findsOneWidget);
     expect(find.text('Simmons Beautyrest'), findsOneWidget);

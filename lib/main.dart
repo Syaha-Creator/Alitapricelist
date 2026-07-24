@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:alita_pricelist/core/config/app_config.dart';
 import 'package:alita_pricelist/core/logging/app_logger.dart';
 import 'package:alita_pricelist/core/router/app_router.dart';
+import 'package:alita_pricelist/core/theme/app_theme.dart';
 import 'package:alita_pricelist/core/widgets/bootstrap_error_page.dart';
 import 'package:alita_pricelist/features/pricelist/logic/pricelist_cache_directory_provider.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -140,6 +141,7 @@ class AlitaApp extends ConsumerWidget {
     return MaterialApp.router(
       title: 'Alita Pricelist',
       debugShowCheckedModeBanner: false,
+      theme: AppTheme.lightTheme,
       routerConfig: router,
     );
   }
